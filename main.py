@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-tickers = {
+STOCK_TICKERS = {
     'apple':        {'symbol': 'AAPL',  'label': 'Apple'},
     'microsoft':    {'symbol': 'MSFT',  'label': 'Microsoft'},
     'amazon':       {'symbol': 'AMZN',  'label': 'Amazon'},
@@ -26,31 +26,84 @@ tickers = {
     'bristolmyers': {'symbol': 'BMY',   'label': 'Bristol Myers Squibb'},
     'raytheon':     {'symbol': 'RTX',   'label': 'RTX'},
 }
+COMMODITY_TICKERS = {
+    # 貴金属
+    "gold":        {"symbol": "GC=F", "label": "Gold"},
+    "silver":      {"symbol": "SI=F", "label": "Silver"},
+    "platinum":    {"symbol": "PL=F", "label": "Platinum"},
+    "palladium":   {"symbol": "PA=F", "label": "Palladium"},
 
-st.title("📈 米国株価 可視化ダッシュボード")
+    # エネルギー
+    "crude_oil":   {"symbol": "CL=F", "label": "WTI Crude Oil"},
+    "brent":       {"symbol": "BZ=F", "label": "Brent Crude"},
+    "natural_gas": {"symbol": "NG=F", "label": "Natural Gas"},
+    "gasoline":    {"symbol": "RB=F", "label": "Gasoline"},
+    "heating_oil": {"symbol": "HO=F", "label": "Heating Oil"},
 
+    # 農産物
+    "corn":        {"symbol": "ZC=F", "label": "Corn"},
+    "wheat":       {"symbol": "ZW=F", "label": "Wheat"},
+    "soybeans":    {"symbol": "ZS=F", "label": "Soybeans"},
+    "soy_oil":     {"symbol": "ZL=F", "label": "Soybean Oil"},
+    "soy_meal":    {"symbol": "ZM=F", "label": "Soybean Meal"},
+
+    # ソフトコモディティ
+    "coffee":      {"symbol": "KC=F", "label": "Coffee"},
+    "sugar":       {"symbol": "SB=F", "label": "Sugar"},
+    "cotton":      {"symbol": "CT=F", "label": "Cotton"},
+    "cocoa":       {"symbol": "CC=F", "label": "Cocoa"},
+}
+
+st.sidebar.header("🧭 表示モード")
+view_mode = st.sidebar.radio(
+    "表示対象",
+    ["株式", "コモディティ"],
+    horizontal=False
+)
+if view_mode == "株式":
+    tickers = STOCK_TICKERS
+    title_suffix = "米国株"
+
+    days_min = 5
+    days_max = 180
+    days_default = 90
+    relative_default = False 
+else:
+    tickers = COMMODITY_TICKERS
+    title_suffix = "コモディティ"
+
+    days_min = 5
+    days_max = 900
+    days_default = 180
+    relative_default = True
+    
+st.title(f"📈 {title_suffix} 可視化ダッシュボード")
 st.caption(
-    "主要米国企業の株価をインタラクティブに比較・分析できます。"
+    f"主要{title_suffix}をインタラクティブに比較・分析できます。"
 )
 
-st.sidebar.header("⚙️ 表示設定")
-
-st.sidebar.markdown("**📅 期間**")
-days = st.sidebar.slider('日数', 5, 180, 90)
-
-st.sidebar.divider()
+st.sidebar.header("📅 期間・表示設定")
+days = st.sidebar.slider(
+    "表示期間（日）",
+    days_min,
+    days_max,
+    days_default
+)
 
 relative = st.sidebar.checkbox(
-    "相対表示",
-    value=False
+    "相対表示（開始日=100）",
+    value=relative_default
 )
-st.sidebar.caption(
-    "共通開始日を100とし、欠損銘柄は初値を100とします"
-)
+if view_mode == "コモディティ":
+    st.sidebar.caption("※ コモディティは相対表示が基本です")
+    
 st.sidebar.divider()
 
-st.sidebar.subheader("📊 株価範囲")
-auto_scale = st.sidebar.checkbox("Y軸を自動スケール", value=True)
+st.sidebar.header("📊 表示スケール")
+auto_scale = st.sidebar.checkbox(
+    "Y軸を自動調整",
+    value=True
+)
 
 @st.cache_data(ttl=3600)
 def fetch_close(symbol: str, days: int) -> pd.Series:
@@ -77,9 +130,7 @@ else:
     )
     y_scale = alt.Scale(domain=[ymin, ymax])
 
-st.write(f"""
-    ### 過去 **{days}** 日間の米主要銘柄の株価
-""")
+st.write(f"### 過去 **{days}** 日間の {title_suffix} の推移")
    
 try:
     df = get_data(days, tickers)
@@ -87,11 +138,10 @@ try:
     label_to_key = {v['label']: k for k, v in tickers.items()}
 
     selected_labels = st.multiselect(
-        '会社名を選択してください',
+        '銘柄を選択してください',
         options=label_to_key.keys(),
-        default=['Apple', 'Amazon', 'Microsoft', 'Google', 'Meta']
+        default=list(label_to_key.keys())[:5]
     )
-
     selected_keys = [label_to_key[label] for label in selected_labels]
 
     if not selected_labels:
@@ -114,7 +164,12 @@ try:
 
             data_chart = data_chart.apply(normalize)
     
-        y_title = "相対株価（開始日=100）" if relative else "株価（USD）"
+        if view_mode == "コモディティ":
+            y_title = "相対価格（開始日=100）" if relative else "価格（単位は銘柄ごと）"
+        else:
+            y_title = "相対株価（開始日=100）" if relative else "株価（USD）"
+
+        price_label = "価格" if view_mode == "コモディティ" else "株価"
 
         data_chart = data_chart.reset_index(names='Date')
 
@@ -125,7 +180,7 @@ try:
             data_chart,
             id_vars='Date',
             var_name='Name',
-            value_name='price_usd'
+            value_name='price'
         )
 
         data_chart['Name'] = data_chart['Name'].map(
@@ -147,12 +202,11 @@ try:
                     axis=alt.Axis(format="%Y-%m-%d", labelAngle=-45)
                 ),
                 y=alt.Y(
-                    "price_usd:Q", 
+                    "price:Q", 
                     title=y_title,
                     stack=None,
                     scale=y_scale
-                ),
-                
+                ),                
                 color=alt.Color(
                     "Name:N",
                     legend=alt.Legend(title="企業名")
@@ -160,7 +214,7 @@ try:
                 tooltip=[
                     alt.Tooltip("Date:T", title="日付"),
                     alt.Tooltip("Name:N", title="企業"),
-                    alt.Tooltip("price_usd:Q", title="株価", format=".2f"),
+                    alt.Tooltip("price:Q", title=price_label, format=".2f"),
                 ]
             )
             .properties(height=420)
